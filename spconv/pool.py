@@ -34,7 +34,8 @@ class SparseMaxPool(SparseModule):
                  stride=1,
                  padding=0,
                  dilation=1,
-                 subm=False):
+                 subm=False,
+                 indice_key=None):
         super(SparseMaxPool, self).__init__()
         if not isinstance(kernel_size, (list, tuple)):
             kernel_size = [kernel_size] * ndim
@@ -51,6 +52,9 @@ class SparseMaxPool(SparseModule):
         self.padding = padding
         self.subm = subm
         self.dilation = dilation
+        self.output_padding = 0 #just used for the hacky way of getting indices
+        self.transposed = False # just used for the hacky way of getting indices
+        self.indice_key = indice_key # just used for the hacky way of getting indices
 
     def forward(self, input):
         assert isinstance(input, spconv.SparseConvTensor)
@@ -67,6 +71,18 @@ class SparseMaxPool(SparseModule):
         outids, indice_pairs, indice_pairs_num = ops.get_indice_pairs(
             indices, batch_size, spatial_shape, self.kernel_size,
             self.stride, self.padding, self.dilation, 0, self.subm)
+
+        #save those indices for later
+        datas = input.find_indice_pair(self.indice_key)
+        if self.indice_key is not None and datas is not None:
+                outids, _, indice_pairs, indice_pair_num, _ = datas
+        else:
+            outids, indice_pairs, indice_pair_num = ops.get_indice_pairs(
+                indices, batch_size, spatial_shape, self.kernel_size,
+                self.stride, self.padding, self.dilation, self.output_padding, self.subm, self.transposed, grid=input.grid)
+            input.indice_dict[self.indice_key] = (outids, indices, indice_pairs, indice_pair_num, spatial_shape)
+
+
         
         out_features = Fsp.indice_maxpool(features, indice_pairs.to(device),
                                         indice_pairs_num.to(device), outids.shape[0])
